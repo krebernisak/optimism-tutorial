@@ -44,7 +44,7 @@ contract ERC20 {
      * @param _initialSupply Initial maximum token supply.
      * @param _name A name for our ERC20 (technically optional, but it's fun ok jeez).
      */
-    constructor(
+    function init(
         uint256 _initialSupply,
         string memory _name
     )
@@ -192,5 +192,16 @@ contract ERC20 {
         )
     {
         return allowances[_owner][_spender];
+    }
+
+    function testRequire()
+        external
+        view
+        returns (
+            uint256
+        )
+    {
+        require(false, "This is an revert string");
+        return balances[msg.sender];
     }
 }

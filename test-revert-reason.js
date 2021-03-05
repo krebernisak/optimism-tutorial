@@ -1,16 +1,12 @@
+const { assert } = require("chai");
+const { networks, deploy, reason } = require("./utils.js");
 const { ethers, ContractFactory } = require("ethers");
 const ERC20ABI = require("./artifacts/contracts/ERC20.sol/ERC20.ovm.json");
 
 const main = async () => {
   const key =
-    "0xea8b000efb33c49d819e8d6452f681eed55cdf7de47d655887fc0e318906f2e7";
+    "0xa35617f4fe630bf50024fcbe2c051d2dffe5ea19695b2d660ce4db7a5acdcc30";
   const networkArg = process.argv.slice(2)[0] || "local";
-
-  const networks = {
-    local: { url: "http://localhost:8545/", id: 420 },
-    goerli: { url: "https://goerli.optimism.io/", id: 420 },
-    kovan: { url: "https://kovan.optimism.io", id: 69 },
-  };
 
   const { url, id, gasPrice } = networks[networkArg];
   console.log("Deploying to: ", networks[networkArg]);
@@ -19,34 +15,13 @@ const main = async () => {
 
   const options = { gasPrice: gasPrice || 0, gasLimit: 8999999 };
 
-  const _finishAndCheckDeploy = async (tx) => {
-    const txHash = tx.deployTransaction.hash;
-    console.log("Deployed in transaction:", txHash);
-    console.log("Will live at address:", tx.address);
-
-    const contract = await tx.deployed();
-    console.log("Contract now live at: ", contract.address);
-
-    const txReceipt = await provider.getTransactionReceipt(txHash);
-    console.log("Receipt: ", txReceipt);
-
-    // Check if code is stored
-    console.log("\nTESTING: code\n--------");
-    const code = await provider.getCode(contract.address);
-    console.log("Code: ", code);
-
-    return contract;
-  };
-
-  const _deploy = async (factory, payload) => {
-    console.log("Deploying with: ", payload);
-    const tx = await factory.deploy(...payload);
-    return await _finishAndCheckDeploy(tx);
-  };
-
   const factory = new ContractFactory(ERC20ABI.abi, ERC20ABI.bytecode, wallet);
+  const contract = await deploy(factory, []);
+
+  // Init ERC20 contract
   const payload = ["1000", "TOK", options];
-  const contract = await _deploy(factory, payload);
+  const initTx = await contract.init(...payload);
+  await initTx.wait();
 
   const _readTotalSupply = async (addr) => {
     console.log();
@@ -59,7 +34,7 @@ const main = async () => {
     }
   };
 
-  // ERRORS
+  // SUCCESSES (testing reading from)
   await _readTotalSupply(ethers.constants.AddressZero);
   await _readTotalSupply("0x0000000000000000000000000000000000000001");
   await _readTotalSupply("0x0000000000000000000000000000000000000069");
@@ -68,11 +43,35 @@ const main = async () => {
   await _readTotalSupply("0x000000000000000000000000000000000000ffff");
   await _readTotalSupply("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0000");
   await _readTotalSupply("0xdeaddeaddeaddeaddeaddeaddeaddeaddeadffff");
-
-  // SUCCESSES
   await _readTotalSupply("0x0000000000000000000000000000000000010000");
   await _readTotalSupply("0x000000000000000000000000000000000001ffff");
   await _readTotalSupply("0x1000000000000000000000000000000000000000");
+
+  // WRITE ERROR
+  console.log("\nTesting WRITE ERROR reason\n");
+  try {
+    const to = "0x0000000000000000000000000000000000000000";
+    const tx = await contract.transfer(to, "1001");
+    await tx.wait();
+  } catch (err) {
+    console.log(err.message);
+    const txHash = err.transaction.hash;
+    const revertMsg = await reason(txHash, wallet.provider);
+    const expectedRevertMsg =
+      "You don't have enough balance to make this transfer";
+    assert(revertMsg.includes(expectedRevertMsg));
+    console.log("WRITE ERROR reason: " + revertMsg);
+  }
+
+  // READ ERROR -> reason is null
+  console.log("\nTesting READ ERROR reason\n");
+  try {
+    await await contract.testRequire();
+  } catch (err) {
+    console.log(err);
+    console.log("READ ERROR reason: " + err.reason);
+    assert(!!err.reason, `Reason is ${err.reason}!`);
+  }
 };
 
 main().catch((e) => console.error(e));
